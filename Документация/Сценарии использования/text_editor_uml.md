@@ -1,0 +1,23 @@
+# Диаграмма прецедентов UML для текстового редактора
+
+```mermaid
+flowchart LR
+    actor1[Пользователь]:::actor
+    actor2[Принтер]:::actor
+    
+    subgraph editor[Текстовый редактор]
+        UC1[Создание/изменение документа]
+        UC2[Открытие/сохранение файла]
+        UC3[Печать документа]
+        UC4[Подсветка синтаксиса]
+    end
+
+    actor1 --> UC1
+    actor1 --> UC2
+    actor1 --> UC3
+    actor1 --> UC4
+    UC3 --> actor2
+
+    classDef actor fill:#e1f5fe,stroke:#01579b
+    classDef usecase fill:#f3e5f5,stroke:#4a148c
+    class UC1,UC2,UC3,UC4 usecase
