@@ -1,0 +1,205 @@
+@startuml
+scale 1.5
+
+!define BOUNDED_CONTEXT(name) rectangle name <<Ограниченный контекст>>
+!define AGGREGATE(name) rectangle name <<Агрегат>>
+
+skinparam <<Ограниченный контекст>> {
+    roundcorner 100
+    PackageTitleAlignment 60
+}
+
+skinparam class {
+    BackgroundColor White
+}
+
+class Main {
+    +Run() void
+    +RequestText() string
+    +DisplayDocument(doc: Document) void
+    +ShowPreview(image: Image) void
+    +ShowErrors(errors: List~SyntaxError~) void
+}
+
+Main --> Editor : "взаимодействует с"
+Editor --> Main : "обновляет интерфейс"
+
+
+BOUNDED_CONTEXT("Контекст_Редактор") as EditorContext {
+
+    ' ---- Агрегат Документ ----
+    AGGREGATE("Агрегат_Документ") {
+        class Document <<Корень агрегата>> {
+            -name: string
+            -paragraphs: List<Paragraph>
+            -cursor: Cursor
+            +Add(p: Paragraph)
+            +Remove(p: Paragraph)
+            +GetText(): string
+            +HighlightElement(id: string)
+            +MoveCursorTo(id: string)
+            +FindNextWord(): Word
+            +FindPreviousWord(): Word
+            +SplitIfNeeded()
+        }
+
+        class Paragraph <<Сущность>> {
+            -sentences: List<Sentence>
+            +Add(s: Sentence)
+            +Remove(s: Sentence)
+            +GetText(): string
+        }
+
+        class Sentence <<Сущность>> {
+            -words: List<Word>
+            +Add(w: Word)
+            +Remove(w: Word)
+            +GetText(): string
+        }
+
+        class Word <<Сущность>> {
+            -letters: List<Letter>
+            +isHighlighted: bool
+            +Add(l: Letter)
+            +Remove(l: Letter)
+            +GetText(): string
+        }
+
+        class Letter <<Объект-значение>> {
+            +value: char
+            +isHighlighted: bool
+            +hasCursor: bool
+        }
+
+        class Cursor <<Сущность>> {
+            +currentElementId: string
+            +MoveToNext()
+            +MoveToPrevious()
+        }
+
+        Document *-- Paragraph : "состоит из"
+        Paragraph *-- Sentence : "состоит из"
+        Sentence *-- Word : "состоит из"
+        Word *-- Letter : "состоит из"
+        Document *-- Cursor : "управляет кареткой"
+    }
+
+    class CompositeManager {
+        +Add(parent, child)
+        +Remove(parent, child)
+        +GetText(node)
+        +ReplaceText(node, old, new)
+        +FindText(node, substring): List~string~
+        +CountElements(node, type): int
+        +Traverse(node, action)
+        +HighlightElement(node, substring)
+        +MoveCursor(node, direction)
+    }
+
+    CompositeManager ..> Document : "управляет"
+    CompositeManager ..> Paragraph
+    CompositeManager ..> Sentence
+    CompositeManager ..> Word
+    CompositeManager ..> Letter
+
+    AGGREGATE("Агрегат_Подсветка") {
+        class SyntaxHighlighter <<Корень агрегата>> {
+            +FindMatches(doc, pattern): List<HighlightToken>
+            +AnalyzeStructure(doc)
+            +Validate(content): List<SyntaxError>
+        }
+
+        class HighlightToken <<Объект-значение>> {
+            +ElementId: string
+            +Type: string
+            +Start: int
+            +Length: int
+        }
+
+        class SyntaxError <<Сущность>> {
+            +Position: int
+            +Message: string
+        }
+
+        SyntaxHighlighter --> HighlightToken : "создаёт"
+        SyntaxHighlighter --> SyntaxError : "создаёт"
+        SyntaxHighlighter ..> Document : "ищет по структуре"
+    }
+}
+
+
+BOUNDED_CONTEXT("Контекст_Печати") as PrintContext {
+
+    class PrintManager <<Корень агрегата>> {
+        +Print(doc, settings)
+        +ShowPreview(doc, settings): PrintPreview
+    }
+
+
+    class PrintSettings <<Объект-значение>> {
+        +PrinterName: string
+        +Copies: int
+        +PageRange: string
+        +Duplex: bool
+        +Orientation: string
+    }
+
+    class PrintPreview <<Сущность>> {
+        +Generate(doc, settings): Image
+    }
+
+    PrintManager --> PrintSettings : "использует"
+    PrintManager *-- PrintPreview : "создаёт"
+}
+
+
+BOUNDED_CONTEXT("Контекст_Экспорт") as ExportContext {
+
+    class ExportManager <<Корень агрегата>> {
+        -pdfAdapter: PdfAdapter
+        -jsonAdapter: JsonAdapter
+        +Export(doc, format, path)
+        -SaveToDocx(doc, tempPath): string
+    }
+
+    class PdfAdapter <<Сущность>> {
+        +ExportFromDocx(docxPath, outPath)
+    }
+
+    class JsonAdapter <<Сущность>> {
+        +ExportFromDocx(docxPath, outPath)
+    }
+
+    ExportManager ..> Document : "сохраняет DOCX"
+    ExportManager ..> PdfAdapter : "через адаптер"
+    ExportManager ..> JsonAdapter : "через адаптер"
+}
+
+class Editor {
+    -Document currentDoc
+    -CompositeManager manager
+    -SyntaxHighlighter highlighter
+    -PrintManager printManager
+    -ExportManager exportManager
+
+    +NewDocument(name)
+    +InsertText(text)
+    +GetFullText()
+    +ReplaceAll(old,new)
+    +Search(pattern)
+    +MoveCursorNext()
+    +MoveCursorPrevious()
+    +HighlightSyntax()
+    +ValidateSyntax(): List<SyntaxError>
+    +Export(format,path)
+    +Print(settings)
+    +Close()
+}
+
+Editor --> Document : "работает с"
+Editor --> CompositeManager : "управляет структурой"
+Editor --> SyntaxHighlighter : "ищет и анализирует"
+Editor --> PrintManager : "печатает"
+Editor --> ExportManager : "экспортирует"
+
+@enduml
