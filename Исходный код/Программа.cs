@@ -1,370 +1,582 @@
 ```csharp
 
+
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
 
 
-class Letter
+
+public abstract class Document
 {
-    public char Value;
-    public bool IsHighlighted = false;
-    public bool HasCursor = false;
-    
+    public string Id { get; } = Guid.NewGuid().ToString();
+    protected List<Document> _children = new();
+
+    public IReadOnlyList<Document> Children => _children;
+
+    public virtual void Add(Document child)
+    {
+        _children.Add(child);
+        Log(nameof(Add));
+    }
+
+    public virtual void Remove(Document child)
+    {
+        _children.Remove(child);
+        Log(nameof(Remove));
+    }
+
+    public virtual IEnumerable<Document> GetChildren() => _children;
+
+    public abstract string GetText();
+
+    protected void Log(string method) =>
+        Console.WriteLine($"Выполнен метод {method} класса {GetType().Name}");
+}
+
+
+
+public class Letter : Document
+{
+    public char Value { get; }
+    public bool IsHighlighted { get; set; }
+    public bool HasCursor { get; set; }
+
     public Letter(char value)
     {
         Value = value;
-        Console.WriteLine($"Letter создан: {value}");
+        Log(nameof(Letter));
+    }
+
+    public override string GetText()
+    {
+        Log(nameof(GetText));
+        return Value.ToString();
     }
 }
 
-class Word
+
+
+public class Word : Document
 {
-    public List<Letter> Letters = new();
-    public bool IsHighlighted = false;
+    public bool IsHighlighted { get; set; }
 
     public Word(string text)
     {
-        Console.WriteLine($"Word создан: {text}");
-        foreach (var ch in text)
-        {
-            Letters.Add(new Letter(ch));
-        }
+        SetText(text);
+        Log(nameof(Word));
     }
 
-    public string GetText()
+    public void SetText(string text)
     {
-        Console.WriteLine("Word.GetText вызван");
-        string result = "";
-        foreach (var l in Letters) result += l.Value;
-        return result;
+        _children.Clear();
+        foreach (var c in text)
+            Add(new Letter(c));
+        Log(nameof(SetText));
     }
 
-    public void SetText(string newText)
+    public override string GetText()
     {
-        Console.WriteLine($"Word.SetText вызван: {newText}");
-        Letters.Clear();
-        foreach (var ch in newText)
-            Letters.Add(new Letter(ch));
+        Log(nameof(GetText));
+        return string.Concat(_children.Select(c => c.GetText()));
     }
 }
 
-class Sentence
+public class Sentence : Document
 {
-    public List<Word> Words = new();
+    public void AddWord(Word w) => Add(w);
 
-    public void Add(Word w)
+    public override string GetText()
     {
-        Console.WriteLine("Sentence.Add(Word) вызван");
-        Words.Add(w);
-    }
-
-    public string GetText()
-    {
-        Console.WriteLine("Sentence.GetText вызван");
-        string result = "";
-        foreach (var w in Words)
-            result += w.GetText() + " ";
-        return result.Trim();
+        Log(nameof(GetText));
+        return string.Join(" ", _children.Select(c => c.GetText()));
     }
 }
 
-class Paragraph
+public class Paragraph : Document
 {
-    public List<Sentence> Sentences = new();
+    public void AddSentence(Sentence s) => Add(s);
 
-    public void Add(Sentence s)
+    public override string GetText()
     {
-        Console.WriteLine("Paragraph.Add(Sentence) вызван");
-        Sentences.Add(s);
-    }
-
-    public string GetText()
-    {
-        Console.WriteLine("Paragraph.GetText вызван");
-        string result = "";
-        foreach (var s in Sentences)
-            result += s.GetText() + "\n";
-        return result.Trim();
+        Log(nameof(GetText));
+        return string.Join(" ", _children.Select(c => c.GetText()));
     }
 }
 
-class Cursor
+
+public class RootDocument : Document
 {
-    public string CurrentElementId;
+    public string Name { get; }
+    public Cursor Cursor { get; } = new();
 
-    public void MoveToNext()
-    {
-        Console.WriteLine("Cursor.MoveToNext вызван");
-    }
-
-    public void MoveToPrevious()
-    {
-        Console.WriteLine("Cursor.MoveToPrevious вызван");
-    }
-}
-
-class Document
-{
-    public string Name;
-    public List<Paragraph> Paragraphs = new();
-    public Cursor Cursor = new Cursor();
-
-    public Document(string name)
+    public RootDocument(string name)
     {
         Name = name;
-        Console.WriteLine($"Document создан: {name}");
+        Log(nameof(RootDocument));
     }
 
-    public void Add(Paragraph p)
+    public void AddParagraph(Paragraph p) => Add(p);
+
+    public override string GetText()
     {
-        Console.WriteLine("Document.Add(Paragraph) вызван");
-        Paragraphs.Add(p);
+        Log(nameof(GetText));
+        return string.Join("\n\n", _children.Select(c => c.GetText()));
     }
 
-    public string GetText()
+    public void HighlightElement(string id)
     {
-        Console.WriteLine("Document.GetText вызван");
-        string result = "";
-        foreach (var p in Paragraphs)
-            result += p.GetText() + "\n";
-        return result.Trim();
-    }
-}
-
-
-class CompositeManager
-{
-    public void Add(Document doc, string text)
-    {
-        Console.WriteLine("CompositeManager.Add вызван");
-        // Простейшее разбиение на Paragraph -> Sentence -> Word
-        var paragraph = new Paragraph();
-        var sentence = new Sentence();
-        foreach (var wordText in text.Split(' '))
+        foreach (var node in Traverse())
         {
-            var word = new Word(wordText);
-            sentence.Add(word);
+            if (node.Id == id)
+            {
+                if (node is Word w) w.IsHighlighted = true;
+                if (node is Letter l) l.IsHighlighted = true;
+            }
         }
-        paragraph.Add(sentence);
-        doc.Add(paragraph);
+        Log(nameof(HighlightElement));
     }
 
-    public void Traverse(Document doc, Action<Word> action)
+    public void MoveCursorTo(string id)
     {
-        Console.WriteLine("CompositeManager.Traverse вызван");
-        foreach (var p in doc.Paragraphs)
-            foreach (var s in p.Sentences)
-                foreach (var w in s.Words)
-                    action(w);
+        Cursor.MoveTo(id);
+
+        foreach (var node in Traverse())
+            if (node is Letter l) l.HasCursor = false;
+
+        foreach (var node in Traverse())
+            if (node.Id == id && node is Letter l)
+                l.HasCursor = true;
+
+        Log(nameof(MoveCursorTo));
     }
 
-    public void ReplaceText(Document doc, string oldText, string newText)
+    public IEnumerable<Document> Traverse()
     {
-        Console.WriteLine("CompositeManager.ReplaceText вызван");
-        Traverse(doc, w =>
+        foreach (var n in InternalTraverse(this))
+            yield return n;
+    }
+
+    private IEnumerable<Document> InternalTraverse(Document node)
+    {
+        yield return node;
+        foreach (var c in node.GetChildren())
+            foreach (var x in InternalTraverse(c))
+                yield return x;
+    }
+}
+
+
+public class Cursor
+{
+    public string CurrentElementId { get; private set; }
+
+    public void MoveTo(string id)
+    {
+        CurrentElementId = id;
+        Console.WriteLine($"Выполнен метод MoveTo класса Cursor");
+    }
+}
+
+
+
+public class CompositeManager
+{
+    public Paragraph CreateParagraph(string text)
+    {
+        var p = new Paragraph();
+        var sentences = text.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var raw in sentences)
         {
-            if (w.GetText() == oldText)
-                w.SetText(newText);
-        });
+            var cleaned = raw.Trim();
+            if (cleaned.Length == 0) continue;
+
+            var s = new Sentence();
+            foreach (var w in cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                s.AddWord(new Word(w));
+
+            p.AddSentence(s);
+        }
+
+        Console.WriteLine("Выполнен метод CreateParagraph класса CompositeManager");
+        return p;
+    }
+
+    public void AddText(RootDocument doc, string text)
+    {
+        var p = CreateParagraph(text);
+        doc.AddParagraph(p);
+        Console.WriteLine("Выполнен метод AddText класса CompositeManager");
+    }
+
+    public void ReplaceText(RootDocument doc, string oldText, string newText)
+    {
+        foreach (var node in doc.Traverse())
+        {
+            if (node is Word w)
+            {
+                var t = w.GetText();
+                if (t.Contains(oldText))
+                    w.SetText(t.Replace(oldText, newText));
+            }
+        }
+        Console.WriteLine("Выполнен метод ReplaceText класса CompositeManager");
+    }
+
+    public IEnumerable<Word> Find(RootDocument doc, string substring)
+    {
+        foreach (var node in doc.Traverse())
+        {
+            if (node is Word w && w.GetText().Contains(substring))
+                yield return w;
+        }
+        Console.WriteLine("Выполнен метод Find класса CompositeManager");
+    }
+
+    public int Count(RootDocument doc, Type t)
+    {
+        int count = doc.Traverse().Count(x => x.GetType() == t);
+        Console.WriteLine("Выполнен метод Count класса CompositeManager");
+        return count;
     }
 }
 
 
-class HighlightToken
-{
-    public string ElementId;
-    public string Type;
-    public int Start;
-    public int Length;
-}
 
-class SyntaxError
+public class HighlightToken
 {
-    public int Position;
-    public string Message;
-}
+    public string ElementId { get; }
+    public string Type { get; }
+    public int Start { get; }
+    public int Length { get; }
 
-class SyntaxHighlighter
-{
-    public List<HighlightToken> FindMatches(Document doc, string pattern)
+    public HighlightToken(string id, string type, int start, int length)
     {
-        Console.WriteLine("SyntaxHighlighter.FindMatches вызван");
-        return new List<HighlightToken>();
-    }
-
-    public List<SyntaxError> Validate(string content)
-    {
-        Console.WriteLine("SyntaxHighlighter.Validate вызван");
-        return new List<SyntaxError>();
+        ElementId = id;
+        Type = type;
+        Start = start;
+        Length = length;
     }
 }
 
-
-class PrintSettings
+public class SyntaxError
 {
-    public string PrinterName;
-    public int Copies;
-    public string PageRange;
-    public bool Duplex;
-    public string Orientation;
-}
+    public int Position { get; }
+    public string Message { get; }
 
-class PrintPreview
-{
-    public void Generate(Document doc, PrintSettings settings)
+    public SyntaxError(int pos, string msg)
     {
-        Console.WriteLine("PrintPreview.Generate вызван");
+        Position = pos;
+        Message = msg;
     }
 }
 
-class PrintManager
+public class SyntaxHighlighter
 {
-    public void ShowPreview(Document doc, PrintSettings settings)
+    public IEnumerable<HighlightToken> FindMatches(RootDocument doc, string pattern)
     {
-        Console.WriteLine("PrintManager.ShowPreview вызван");
-        var preview = new PrintPreview();
-        preview.Generate(doc, settings);
+        int pos = 0;
+        foreach (var node in doc.Traverse())
+        {
+            if (node is Word w)
+            {
+                var text = w.GetText();
+                int idx = text.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0)
+                    yield return new HighlightToken(w.Id, "match", pos + idx, pattern.Length);
+
+                pos += text.Length + 1;
+            }
+        }
+
+        Console.WriteLine("Выполнен метод FindMatches класса SyntaxHighlighter");
     }
 
-    public void Print(Document doc, PrintSettings settings)
+    public IEnumerable<SyntaxError> Validate(RootDocument doc)
     {
-        Console.WriteLine("PrintManager.Print вызван");
-    }
-}
+        int pos = 0;
+        foreach (var node in doc.Traverse())
+        {
+            if (node is Word w)
+            {
+                if (string.IsNullOrWhiteSpace(w.GetText()))
+                    yield return new SyntaxError(pos, "Empty word");
 
+                pos += w.GetText().Length + 1;
+            }
+        }
 
-class PdfAdapter
-{
-    public void ExportFromDocx(string docxPath, string outputPath)
-    {
-        Console.WriteLine($"PdfAdapter.ExportFromDocx вызван: {outputPath}");
-    }
-}
-
-class JsonAdapter
-{
-    public void ExportFromDocx(string docxPath, string outputPath)
-    {
-        Console.WriteLine($"JsonAdapter.ExportFromDocx вызван: {outputPath}");
-    }
-}
-
-class ExportManager
-{
-    PdfAdapter pdfAdapter = new PdfAdapter();
-    JsonAdapter jsonAdapter = new JsonAdapter();
-
-    public void Export(Document doc, string format, string path)
-    {
-        Console.WriteLine($"ExportManager.Export вызван: {format} -> {path}");
-        // получаем текст через CompositeManager
-        string text = doc.GetText();
-
-        if (format == "pdf")
-            pdfAdapter.ExportFromDocx("temp.docx", path);
-        else if (format == "json")
-            jsonAdapter.ExportFromDocx("temp.docx", path);
-        else if (format == "docx")
-            Console.WriteLine("Сохраняем DOCX");
+        Console.WriteLine("Выполнен метод Validate класса SyntaxHighlighter");
     }
 }
 
 
-class Editor
+
+public interface IExportAdapter
 {
-    public Document CurrentDoc;
-    public CompositeManager Manager = new CompositeManager();
-    public SyntaxHighlighter Highlighter = new SyntaxHighlighter();
-    public PrintManager PrintManager = new PrintManager();
-    public ExportManager ExportManager = new ExportManager();
+    string Format { get; }
+    void Export(RootDocument doc, string path);
+}
 
-    public Document NewDocument(string name)
+public class JsonExportAdapter : IExportAdapter
+{
+    public string Format => "json";
+
+    public void Export(RootDocument doc, string path)
     {
-        Console.WriteLine($"Editor.NewDocument вызван: {name}");
-        CurrentDoc = new Document(name);
-        return CurrentDoc;
+        var data = doc.Traverse().Select(n => n.GetText()).ToList();
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+        System.IO.File.WriteAllText(path, json);
+        Console.WriteLine("Выполнен метод Export класса JsonExportAdapter");
+    }
+}
+
+public class PdfExportAdapter : IExportAdapter
+{
+    public string Format => "pdf";
+
+    public void Export(RootDocument doc, string path)
+    {
+        var text = doc.GetText();
+        System.IO.File.WriteAllText(path, "PDF CONTENT:\n\n" + text);
+        Console.WriteLine("Выполнен метод Export класса PdfExportAdapter");
+    }
+}
+
+public class ExportManager
+{
+    private readonly Dictionary<string, IExportAdapter> _adapters;
+
+    public ExportManager(IEnumerable<IExportAdapter> adapters)
+    {
+        _adapters = adapters.ToDictionary(a => a.Format.ToLower());
+        Console.WriteLine("Выполнен метод ExportManager класса ExportManager");
     }
 
-    public void InsertText(string text)
+    public void Export(RootDocument doc, string format, string path)
     {
-        Console.WriteLine($"Editor.InsertText вызван: {text}");
-        Manager.Add(CurrentDoc, text);
+        if (_adapters.TryGetValue(format.ToLower(), out var a))
+            a.Export(doc, path);
+        else
+            throw new Exception("Unsupported format");
+
+        Console.WriteLine("Выполнен метод Export класса ExportManager");
+    }
+}
+
+
+
+public class PrintSettings
+{
+    public string PrinterName { get; }
+    public int Copies { get; }
+    public string PageRange { get; }  
+    public bool Duplex { get; }           
+    public string Orientation { get; }    
+
+    public PrintSettings(string printerName, int copies = 1, string pageRange = "", bool duplex = false, string orientation = "Portrait")
+    {
+        PrinterName = printerName;
+        Copies = copies;
+        PageRange = pageRange;
+        Duplex = duplex;
+        Orientation = orientation;
+    }
+}
+
+
+
+public class PrintSettings
+{
+    public string PrinterName { get; }
+    public int Copies { get; }
+    public string PageRange { get; } 
+    public bool Duplex { get; }  
+    public string Orientation { get; } 
+
+    public PrintSettings(string printerName, int copies = 1, string pageRange = null, bool duplex = false, string orientation = "Portrait")
+    {
+        PrinterName = printerName;
+        Copies = copies;
+        PageRange = pageRange;
+        Duplex = duplex;
+        Orientation = orientation;
+    }
+}
+
+public class PrintManager
+{
+    private const int PageSize = 1000; 
+
+    public void ShowPreview(RootDocument doc, PrintSettings settings, string path)
+    {
+        var pages = SplitIntoPages(doc.GetText());
+        var selectedPages = SelectPages(pages, settings.PageRange);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Preview for printer: {settings.PrinterName}");
+        sb.AppendLine($"Orientation: {settings.Orientation}");
+        sb.AppendLine($"Duplex: {settings.Duplex}");
+        sb.AppendLine($"Copies: {settings.Copies}");
+        sb.AppendLine("=== Pages Preview ===");
+        foreach (var (i, content) in selectedPages.Select((p, idx) => (idx + 1, p)))
+        {
+            sb.AppendLine($"--- Page {i} ---");
+            sb.AppendLine(content);
+        }
+
+        System.IO.File.WriteAllText(path, sb.ToString());
+        Console.WriteLine($"Preview saved to {path}");
     }
 
-    public void ReplaceAll(string oldText, string newText)
+    public void Print(RootDocument doc, PrintSettings settings)
     {
-        Console.WriteLine($"Editor.ReplaceAll вызван: {oldText} -> {newText}");
-        Manager.ReplaceText(CurrentDoc, oldText, newText);
+        var pages = SplitIntoPages(doc.GetText());
+        var selectedPages = SelectPages(pages, settings.PageRange);
+
+        for (int copy = 1; copy <= settings.Copies; copy++)
+        {
+            Console.WriteLine($"Printing copy {copy} to printer {settings.PrinterName}");
+            Console.WriteLine($"Orientation: {settings.Orientation}, Duplex: {settings.Duplex}");
+            
+            int pageNum = 1;
+            foreach (var content in selectedPages)
+            {
+                if (settings.Duplex)
+                {
+                    Console.WriteLine($"Printing page {pageNum} (Duplex front/back)...");
+                    pageNum++;
+                    Console.WriteLine($"Printing page {pageNum} (Duplex back)...");
+                }
+                else
+                {
+                    Console.WriteLine($"Printing page {pageNum}...");
+                }
+
+                pageNum++;
+            }
+
+            Console.WriteLine("Copy finished.\n");
+        }
     }
 
-    public void HighlightSyntax()
+    private List<string> SplitIntoPages(string text)
     {
-        Console.WriteLine("Editor.HighlightSyntax вызван");
-        Highlighter.FindMatches(CurrentDoc, "pattern");
-        Highlighter.Validate(CurrentDoc.GetText());
+        var pages = new List<string>();
+        for (int i = 0; i < text.Length; i += PageSize)
+        {
+            pages.Add(text.Substring(i, Math.Min(PageSize, text.Length - i)));
+        }
+        return pages;
     }
 
-    public void Print(PrintSettings settings)
+    private List<string> SelectPages(List<string> pages, string pageRange)
     {
-        Console.WriteLine("Editor.Print вызван");
-        PrintManager.Print(CurrentDoc, settings);
+        if (string.IsNullOrEmpty(pageRange))
+            return pages;
+
+        var result = new List<string>();
+        var ranges = pageRange.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var r in ranges)
+        {
+            if (r.Contains('-'))
+            {
+                var parts = r.Split('-');
+                if (int.TryParse(parts[0], out int start) && int.TryParse(parts[1], out int end))
+                {
+                    for (int i = start; i <= end && i <= pages.Count; i++)
+                        result.Add(pages[i - 1]);
+                }
+            }
+            else
+            {
+                if (int.TryParse(r, out int page) && page <= pages.Count)
+                    result.Add(pages[page - 1]);
+            }
+        }
+
+        return result;
+    }
+}
+
+
+
+public class Editor
+{
+    private readonly CompositeManager _manager;
+    private readonly SyntaxHighlighter _highlighter;
+    private readonly ExportManager _export;
+    private readonly PrintManager _print;
+
+    public RootDocument Document { get; private set; }
+
+    public Editor(CompositeManager m, SyntaxHighlighter sh, ExportManager ex, PrintManager pm)
+    {
+        _manager = m;
+        _highlighter = sh;
+        _export = ex;
+        _print = pm;
+        Log(nameof(Editor));
     }
 
-    public void ShowPreview(PrintSettings settings)
+    public RootDocument NewDocument(string name)
     {
-        Console.WriteLine("Editor.ShowPreview вызван");
-        PrintManager.ShowPreview(CurrentDoc, settings);
+        Document = new RootDocument(name);
+        Log(nameof(NewDocument));
+        return Document;
+    }
+
+    public void Insert(string text)
+    {
+        _manager.AddText(Document, text);
+        Log(nameof(Insert));
+    }
+
+    public void Replace(string oldText, string newText)
+    {
+        _manager.ReplaceText(Document, oldText, newText);
+        Log(nameof(Replace));
+    }
+
+    public IEnumerable<HighlightToken> Highlight(string pattern)
+    {
+        Log(nameof(Highlight));
+        return _highlighter.FindMatches(Document, pattern);
+    }
+
+    public IEnumerable<SyntaxError> Validate()
+    {
+        Log(nameof(Validate));
+        return _highlighter.Validate(Document);
     }
 
     public void Export(string format, string path)
     {
-        Console.WriteLine($"Editor.Export вызван: {format} -> {path}");
-        ExportManager.Export(CurrentDoc, format, path);
+        _export.Export(Document, format, path);
+        Log(nameof(Export));
     }
-}
 
-
-class MainApp
-{
-    public Editor editor = new Editor();
-
-    public void Run()
+    public void Preview(PrintSettings settings, string path)
     {
-        Console.WriteLine("Main.Run вызван");
-
-        // Создание документа
-        editor.NewDocument("MyDoc");
-
-        // Ввод текста
-        editor.InsertText("Hello world!");
-
-        // Замена текста
-        editor.ReplaceAll("Hello", "Hi");
-
-        // Подсветка синтаксиса
-        editor.HighlightSyntax();
-
-        // Экспорт
-        editor.Export("docx", "mydoc.docx");
-        editor.Export("pdf", "mydoc.pdf");
-        editor.Export("json", "mydoc.json");
-
-        // Печать
-        var settings = new PrintSettings() { PrinterName = "Printer1", Copies = 1 };
-        editor.ShowPreview(settings);
-        editor.Print(settings);
+        _print.ShowPreview(Document, settings, path);
+        Log(nameof(Preview));
     }
-}
 
-
-class Program
-{
-    static void Main(string[] args)
+    public void Print(PrintSettings settings)
     {
-        var app = new MainApp();
-        app.Run();
+        _print.Print(Document, settings);
+        Log(nameof(Print));
+    }
+
+    private void Log(string m)
+    {
+        Console.WriteLine($"Выполнен метод {m} класса Editor");
     }
 }
+
 
 
 ```
