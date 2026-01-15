@@ -1,6 +1,5 @@
 ```csharp
 
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,8 +30,20 @@ public abstract class Document
 
     public abstract string GetText();
 
-    protected void Log(string method) =>
-        Console.WriteLine($"Выполнен метод {method} класса {GetType().Name}");
+    protected virtual string Describe()
+    {
+        return "";
+    }
+
+    protected void Log(string method)
+    {
+        var details = Describe();
+        if (!string.IsNullOrEmpty(details))
+            Console.WriteLine($"Выполнен метод {method} класса {GetType().Name}: {details}");
+        else
+            Console.WriteLine($"Выполнен метод {method} класса {GetType().Name}");
+    }
+
 }
 
 
@@ -53,6 +64,10 @@ public class Letter : Document
     {
         Log(nameof(GetText));
         return Value.ToString();
+    }
+    protected override string Describe()
+    {
+        return $"'{Value}'";
     }
 }
 
@@ -81,6 +96,11 @@ public class Word : Document
         Log(nameof(GetText));
         return string.Concat(_children.Select(c => c.GetText()));
     }
+
+    protected override string Describe()
+    {
+        return $"\"{string.Concat(_children.Select(c => c.GetText()))}\"";
+    }
 }
 
 public class Sentence : Document
@@ -92,6 +112,11 @@ public class Sentence : Document
         Log(nameof(GetText));
         return string.Join(" ", _children.Select(c => c.GetText()));
     }
+
+    protected override string Describe()
+    {
+        return $"\"{string.Join(" ", _children.Select(c => c.GetText()))}\"";
+    }
 }
 
 public class Paragraph : Document
@@ -102,6 +127,11 @@ public class Paragraph : Document
     {
         Log(nameof(GetText));
         return string.Join(" ", _children.Select(c => c.GetText()));
+    }
+
+    protected override string Describe()
+    {
+        return $"({Children.Count} предложений)";
     }
 }
 
@@ -165,6 +195,11 @@ public class RootDocument : Document
             foreach (var x in InternalTraverse(c))
                 yield return x;
     }
+
+    protected override string Describe()
+    {
+        return $"Документ \"{Name}\"";
+    }
 }
 
 
@@ -183,7 +218,8 @@ public class Cursor
 
 public class CompositeManager
 {
-    public Paragraph CreateParagraph(string text)
+	
+	public Paragraph CreateParagraph(string text)
     {
         var p = new Paragraph();
         var sentences = text.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries);
@@ -199,18 +235,28 @@ public class CompositeManager
 
             p.AddSentence(s);
         }
-
-        Console.WriteLine("Выполнен метод CreateParagraph класса CompositeManager");
+		Console.WriteLine("Выполнен метод CreateParagraph класса CompositeManager");
         return p;
     }
+	
+	
+	public void AddText(RootDocument doc, string text)
+	{
+		var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-    public void AddText(RootDocument doc, string text)
-    {
-        var p = CreateParagraph(text);
-        doc.AddParagraph(p);
-        Console.WriteLine("Выполнен метод AddText класса CompositeManager");
-    }
+		foreach (var line in lines)
+		{
+			var cleanedLine = line.Trim();
+			if (string.IsNullOrEmpty(cleanedLine)) continue;
 
+			var p = CreateParagraph(cleanedLine);
+			doc.AddParagraph(p);
+		}
+
+		Console.WriteLine("Выполнен метод AddText: текст разделен на абзацы по переносу строки");
+	}
+
+	
     public void ReplaceText(RootDocument doc, string oldText, string newText)
     {
         foreach (var node in doc.Traverse())
@@ -372,9 +418,9 @@ public class PrintSettings
 {
     public string PrinterName { get; }
     public int Copies { get; }
-    public string PageRange { get; }  
-    public bool Duplex { get; }           
-    public string Orientation { get; }    
+    public string PageRange { get; }
+    public bool Duplex { get; }
+    public string Orientation { get; }
 
     public PrintSettings(string printerName, int copies = 1, string pageRange = "", bool duplex = false, string orientation = "Portrait")
     {
@@ -388,27 +434,10 @@ public class PrintSettings
 
 
 
-public class PrintSettings
-{
-    public string PrinterName { get; }
-    public int Copies { get; }
-    public string PageRange { get; } 
-    public bool Duplex { get; }  
-    public string Orientation { get; } 
-
-    public PrintSettings(string printerName, int copies = 1, string pageRange = null, bool duplex = false, string orientation = "Portrait")
-    {
-        PrinterName = printerName;
-        Copies = copies;
-        PageRange = pageRange;
-        Duplex = duplex;
-        Orientation = orientation;
-    }
-}
 
 public class PrintManager
 {
-    private const int PageSize = 1000; 
+    private const int PageSize = 1000;
 
     public void ShowPreview(RootDocument doc, PrintSettings settings, string path)
     {
@@ -440,7 +469,7 @@ public class PrintManager
         {
             Console.WriteLine($"Printing copy {copy} to printer {settings.PrinterName}");
             Console.WriteLine($"Orientation: {settings.Orientation}, Duplex: {settings.Duplex}");
-            
+
             int pageNum = 1;
             foreach (var content in selectedPages)
             {
@@ -574,6 +603,84 @@ public class Editor
     private void Log(string m)
     {
         Console.WriteLine($"Выполнен метод {m} класса Editor");
+    }
+}
+
+class Program
+{
+    static void Main()
+    {
+        // 1. Инициализация инфраструктуры
+        var compositeManager = new CompositeManager();
+        var syntaxHighlighter = new SyntaxHighlighter();
+
+        var exportManager = new ExportManager(new IExportAdapter[]
+        {
+            new JsonExportAdapter(),
+            new PdfExportAdapter()
+        });
+
+        var printManager = new PrintManager();
+
+        // 2. Создание редактора
+        var editor = new Editor(
+            compositeManager,
+            syntaxHighlighter,
+            exportManager,
+            printManager
+        );
+
+        // 3. Прецедент: создание документа
+        var doc = editor.NewDocument("Текстовый редактор");
+
+        // 4. Прецедент: ввод текста
+        editor.Insert(@"Это первый абзац.
+		
+		Это второй абзац, разделенный переносом строки. Тут два предложения.");
+		
+
+        Console.WriteLine("\n ТЕКСТ ДОКУМЕНТА");
+        Console.WriteLine(doc.GetText());
+
+        // 5. Прецедент: замена текста
+        editor.Replace("редактор", "Editor");
+
+        Console.WriteLine("\n ПОСЛЕ ЗАМЕНЫ");
+        Console.WriteLine(doc.GetText());
+
+        // 6. Прецедент: поиск и подсветка
+        Console.WriteLine("\n ПОДСВЕТКА 'Editor'");
+        foreach (var token in editor.Highlight("Editor"))
+        {
+            Console.WriteLine($"Match: Element={token.ElementId}, Start={token.Start}");
+        }
+
+        // 7. Прецедент: валидация
+        Console.WriteLine("\n ПРОВЕРКА СИНТАКСИСА");
+        foreach (var error in editor.Validate())
+        {
+            Console.WriteLine($"Error at {error.Position}: {error.Message}");
+        }
+
+        // 8. Прецедент: экспорт
+        editor.Export("json", "document.json");
+        editor.Export("pdf", "document.pdf");
+
+        // 9. Прецедент: предпросмотр печати
+        var settings = new PrintSettings(
+            printerName: "VirtualPrinter",
+            copies: 1,
+            pageRange: "1",
+            duplex: false,
+            orientation: "Portrait"
+        );
+
+        editor.Preview(settings, "preview.txt");
+
+        // 10. Прецедент: печать
+        editor.Print(settings);
+
+        Console.WriteLine("\n ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА");
     }
 }
 
